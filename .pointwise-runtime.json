@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "cli",
+  "setup": [],
+  "verify": [
+    "python3",
+    "-m",
+    "lake.review",
+    "--baseline"
+  ],
+  "demo": [
+    "python3",
+    "-m",
+    "lake.evidence",
+    "all"
+  ]
+}

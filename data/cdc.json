@@ -1,0 +1,43 @@
+[
+  {
+    "seq": 1,
+    "key": "A",
+    "op": "upsert",
+    "day": "2026-10-01",
+    "amount": 10
+  },
+  {
+    "seq": 2,
+    "key": "B",
+    "op": "upsert",
+    "day": "2026-10-01",
+    "amount": 20
+  },
+  {
+    "seq": 3,
+    "key": "A",
+    "op": "upsert",
+    "day": "2026-10-02",
+    "amount": 12
+  },
+  {
+    "seq": 4,
+    "key": "B",
+    "op": "delete",
+    "day": "2026-10-01"
+  },
+  {
+    "seq": 5,
+    "key": "C",
+    "op": "upsert",
+    "day": "2026-10-02",
+    "amount": 7
+  },
+  {
+    "seq": 6,
+    "key": "A",
+    "op": "upsert",
+    "day": "2026-10-02",
+    "amount": 15
+  }
+]
