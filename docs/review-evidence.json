@@ -1,0 +1,236 @@
+{
+  "baseline": {
+    "interleavings": {
+      "stale_compactor": {
+        "before": {
+          "checkpoint": 4,
+          "rows": [
+            {
+              "amount": 12,
+              "day": "2026-10-02",
+              "key": "A"
+            }
+          ],
+          "segments": 3,
+          "version": 2
+        },
+        "error": "HEAD_CONFLICT",
+        "rejected": {
+          "checkpoint": 4,
+          "rows": [
+            {
+              "amount": 12,
+              "day": "2026-10-02",
+              "key": "A"
+            }
+          ],
+          "segments": 3,
+          "version": 2
+        },
+        "retried": {
+          "checkpoint": 4,
+          "rows": [
+            {
+              "amount": 12,
+              "day": "2026-10-02",
+              "key": "A"
+            }
+          ],
+          "segments": 2,
+          "version": 3
+        }
+      },
+      "stale_writer": {
+        "before": {
+          "checkpoint": 2,
+          "rows": [
+            {
+              "amount": 10,
+              "day": "2026-10-01",
+              "key": "A"
+            },
+            {
+              "amount": 20,
+              "day": "2026-10-01",
+              "key": "B"
+            }
+          ],
+          "segments": 1,
+          "version": 2
+        },
+        "error": "HEAD_CONFLICT",
+        "rejected": {
+          "checkpoint": 2,
+          "rows": [
+            {
+              "amount": 10,
+              "day": "2026-10-01",
+              "key": "A"
+            },
+            {
+              "amount": 20,
+              "day": "2026-10-01",
+              "key": "B"
+            }
+          ],
+          "segments": 1,
+          "version": 2
+        },
+        "retried": {
+          "checkpoint": 4,
+          "rows": [
+            {
+              "amount": 12,
+              "day": "2026-10-02",
+              "key": "A"
+            }
+          ],
+          "segments": 3,
+          "version": 3
+        }
+      }
+    },
+    "projection": {
+      "full_manifest": [],
+      "projected_manifest": [
+        {
+          "amount": 20,
+          "day": "2026-10-01",
+          "key": "B"
+        }
+      ],
+      "selected_events": [
+        {
+          "day": "2026-10-02",
+          "key": "B",
+          "op": "delete",
+          "seq": 2
+        }
+      ]
+    },
+    "receipt": {
+      "changed_request": "TOKEN_REUSE",
+      "head": {
+        "checkpoint": 4,
+        "rows": [
+          {
+            "amount": 12,
+            "day": "2026-10-02",
+            "key": "A"
+          }
+        ],
+        "segments": 3,
+        "version": 2
+      },
+      "receipt_version": 1
+    },
+    "regression": {
+      "after": {
+        "checkpoint": 6,
+        "rows": [
+          {
+            "amount": 15,
+            "day": "2026-10-02",
+            "key": "A"
+          },
+          {
+            "amount": 7,
+            "day": "2026-10-02",
+            "key": "C"
+          }
+        ],
+        "segments": 2,
+        "version": 4
+      },
+      "before": {
+        "checkpoint": 6,
+        "rows": [
+          {
+            "amount": 15,
+            "day": "2026-10-02",
+            "key": "A"
+          },
+          {
+            "amount": 7,
+            "day": "2026-10-02",
+            "key": "C"
+          }
+        ],
+        "segments": 4,
+        "version": 3
+      },
+      "pinned_v1": [
+        {
+          "amount": 10,
+          "day": "2026-10-01",
+          "key": "A"
+        },
+        {
+          "amount": 20,
+          "day": "2026-10-01",
+          "key": "B"
+        }
+      ]
+    }
+  },
+  "decisions": [
+    {
+      "choice": "选择“选中输入存活 + 追加兼容清单拼接”的发布：维护先在 SegmentStore 写内容寻址输出；发布前只读 Catalog 元数据，要求 current manifest 中选中的每个 ID 仍各出现一次；回收墓碑时还要求 base manifest 是 current 的精确前缀且 checkpoint 已前进。满足后在 BEGIN IMMEDIATE 内以 current.version 为 CAS base、复制 current.checkpoint 并拼接目标清单发布。HEAD_CONFLICT 只重读元数据重算目标，不回读载荷；INPUT_REPLACED 则重新规划。拒绝每次重算（A 中会重读已写输出）和跨对象写入/发布的持锁方案（B/C 中阻塞持续 ingest 且跨越两个数据库事务）。",
+      "code": [
+        "lake/catalog.py:52",
+        "lake/catalog.py:63",
+        "lake/catalog.py:67",
+        "lake/catalog.py:70",
+        "lake/compact.py:17",
+        "lake/cdc.py:28"
+      ],
+      "id": "publication"
+    },
+    {
+      "choice": "维护提交只复制 current.checkpoint，从不推进或回退；ingest 是唯一 checkpoint 推进者，prepare 按 base.checkpoint+1..n 校验连续 seq，checkpoint 记录为最后一条 seq。snapshot(segments,checkpoint)、head.version 与 receipt 在同一次 BEGIN IMMEDIATE 中原子提交。维护模式发布若 checkpoint != current.checkpoint 以 CHECKPOINT_NOT_OWNED 拒绝。ingest 遇 HEAD_CONFLICT 时以 current manifest 为左半部分、加上自己已写的 added 段重建并重新提交，绝不使用旧 prepared.manifest。",
+      "code": [
+        "lake/catalog.py:65",
+        "lake/catalog.py:66",
+        "lake/catalog.py:70",
+        "lake/cdc.py:17",
+        "lake/cdc.py:28"
+      ],
+      "id": "checkpoint"
+    },
+    {
+      "choice": "局部压实对每个 key 保留 selected 内的最大 seq 事件，包括 delete；只有 reclaim 且 selected 恰等于 base 全清单时才省略 delete。部分选择申请回收直接拒绝，因为不扫描未选载荷无法证明没有更老 upsert 会被复活。全覆盖时 base 内所有事件都在 selected，后续合法追加的 seq 均大于 base checkpoint，丢弃旧墓碑不改变结果；base 前缀被破坏或输入被替换则重新规划。历史 snapshot/对象永久保留，不做物理删除。",
+      "code": [
+        "lake/segments.py:48",
+        "lake/segments.py:49",
+        "lake/segments.py:55",
+        "lake/segments.py:57",
+        "lake/compact.py:17"
+      ],
+      "id": "tombstones"
+    },
+    {
+      "choice": "复用现有 token→signature→version 精确回执：成功请求重试同一 (base,manifest,checkpoint,token) 只返回 receipt.version，receipt 命中路径不 UPDATE head；若响应丢失后 head 已前进，旧回执仍只确认原请求，当前 head 另行 snapshot() 读取。同 token 内容变化触发 TOKEN_REUSE，必须换新 attempt/token。新增只读 receipt(token) 查询和计划日志 outputs 字段，使崩溃后可确认原请求或复用已写输出；旧回执绝不回退 head。",
+      "code": [
+        "lake/catalog.py:49",
+        "lake/catalog.py:51",
+        "lake/catalog.py:55",
+        "lake/catalog.py:58",
+        "lake/catalog.py:59",
+        "lake/catalog.py:60",
+        "lake/catalog.py:75"
+      ],
+      "id": "retry-receipt"
+    },
+    {
+      "choice": "重叠冲突按选中段 provenance 判定而非 job ID：发布前要求每个选中 ID 在 current manifest 中仍恰好出现一次。两个 worker 选中重叠段时，先发布者替换这些 ID，后者的存活检查失败并返回 INPUT_REPLACED，必须按 current 重新规划或重新排队，不能拼接自己的旧输出，否则会重新引入被替换的旧段。不相交选择且选中 ID 仍存活时，局部（不回收）压实输出可安全拼接复用。",
+      "code": [
+        "lake/catalog.py:47",
+        "lake/catalog.py:63",
+        "lake/catalog.py:70",
+        "lake/cdc.py:28",
+        "lake/compact.py:22"
+      ],
+      "id": "overlap"
+    }
+  ]
+}

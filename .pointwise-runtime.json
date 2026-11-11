@@ -5,8 +5,7 @@
   "verify": [
     "python3",
     "-m",
-    "lake.review",
-    "--baseline"
+    "lake.review"
   ],
   "demo": [
     "python3",
